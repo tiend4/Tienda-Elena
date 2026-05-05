@@ -1098,11 +1098,11 @@ function renderAdmin(){
       const menuId='menu-'+c.id;
       const menu=isHist?"":`
         <div class="client-menu-wrap">
-          <button class="client-menu-btn" onclick="toggleClientMenu('${menuId}')">⋯</button>
+          <button class="client-menu-btn" onclick="event.stopPropagation();toggleClientMenu('${menuId}')">⋯</button>
           <div class="client-menu-dropdown" id="${menuId}">
-            <button class="client-menu-item" onclick="abrirEditCliente('${c.id}','${c.name}');closeAllMenus()">✏️ Editar nombre</button>
-            <button class="client-menu-item" onclick="abrirResetPass('${c.id}','${c.name}');closeAllMenus()">🔑 Resetear contraseña</button>
-            <button class="client-menu-item danger" onclick="deleteClient('${c.id}');closeAllMenus()">🗑 Eliminar</button>
+            <button class="client-menu-item" onclick="event.stopPropagation();abrirEditCliente('${c.id}','${c.name}');closeAllMenus()">✏️ Editar nombre</button>
+            <button class="client-menu-item" onclick="event.stopPropagation();abrirResetPass('${c.id}','${c.name}');closeAllMenus()">🔑 Resetear contraseña</button>
+            <button class="client-menu-item danger" onclick="event.stopPropagation();deleteClient('${c.id}');closeAllMenus()">🗑 Eliminar</button>
           </div>
         </div>`;
       return `<div class="client-card">
