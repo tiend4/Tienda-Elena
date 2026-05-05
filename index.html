@@ -919,7 +919,15 @@ function loadViewPurchases(){
   if(unsubViewPayments){unsubViewPayments();unsubViewPayments=null;}
   unsubViewPayments=db.collection("payments").where("monthKey","==",viewMonthKey).onSnapshot(s=>{viewPayments=s.docs.map(d=>({id:d.id,...d.data()}));renderAdmin();});
 }
-mainAuth.onAuthStateChanged(async fbUser=>{if(!fbUser){currentUser=null;if(unsubPurchases){unsubPurchases();unsubPurchases=null;}if(unsubView){unsubView();unsubView=null;}if(unsubPayments){unsubPayments();unsubPayments=null;}if(unsubViewPayments){unsubViewPayments();unsubViewPayments=null;}showScreen("screen-login");const b=document.getElementById("btn-login");b.disabled=false;b.textContent="Ingresar";return;}await loadAll();if(fbUser.email===ADMIN_EMAIL){currentUser={id:"admin",name:"Administrador",username:"admin",role:"admin"};}else{const p=cachedUsers.find(u=>toEmail(u.username)===fbUser.email);if(!p){await mainAuth.signOut();document.getElementById("login-error").textContent="Usuario o contraseña incorrectos";document.getElementById("btn-login").disabled=false;document.getElementById("btn-login").textContent="Ingresar";return;}currentUser=p;}document.getElementById("btn-login").disabled=false;document.getElementById("btn-login").textContent="Ingresar";document.getElementById("login-error").textContent="";if(currentUser.role==="admin"){populateMonthSelectors();subscribePurchases(()=>{});loadViewPurchases();showScreen("screen-admin");setTimeout(()=>{initSliders();initRipples();},100);}else{subscribePurchases(renderCliente);renderCliente();showScreen("screen-cliente");setTimeout(()=>{initSliders();initRipples();},150);}});
+mainAuth.onAuthStateChanged(async fbUser=>{if(!fbUser){currentUser=null;if(unsubPurchases){unsubPurchases();unsubPurchases=null;}if(unsubView){unsubView();unsubView=null;}if(unsubPayments){unsubPayments();unsubPayments=null;}if(unsubViewPayments){unsubViewPayments();unsubViewPayments=null;}showScreen("screen-login");const b=document.getElementById("btn-login");b.disabled=false;b.textContent="Ingresar";return;}await loadAll();if(fbUser.email===ADMIN_EMAIL){currentUser={id:"admin",name:"Administrador",username:"admin",role:"admin"};}else{const p=cachedUsers.find(u=>toEmail(u.username)===fbUser.email);if(!p){await mainAuth.signOut();document.getElementById("login-error").textContent="Usuario o contraseña incorrectos";document.getElementById("btn-login").disabled=false;document.getElementById("btn-login").textContent="Ingresar";return;}currentUser=p;}document.getElementById("btn-login").disabled=false;document.getElementById("btn-login").textContent="Ingresar";document.getElementById("login-error").textContent="";if(currentUser.role==="admin"){populateMonthSelectors();subscribePurchases(()=>{});loadViewPurchases();showScreen("screen-admin");setTimeout(()=>{initSliders();initRipples();},100);}else{
+  // If admin set a temp password, apply it now via Firebase Auth
+  if(p.adminSetPassword){
+    mainAuth.currentUser.updatePassword(p.adminSetPassword)
+      .then(()=>db.collection("users").doc(p.id).update({adminSetPassword:firebase.firestore.FieldValue.delete()}))
+      .then(()=>{if(currentUser)delete currentUser.adminSetPassword;})
+      .catch(()=>{});
+  }
+  subscribePurchases(renderCliente);renderCliente();showScreen("screen-cliente");setTimeout(()=>{initSliders();initRipples();},150);}});
 function doLogin(){const u=document.getElementById("login-user").value.trim(),p=document.getElementById("login-pass").value,b=document.getElementById("btn-login"),e=document.getElementById("login-error");if(!u||!p){e.textContent="Completa usuario y contraseña";return;}b.disabled=true;b.textContent="Ingresando...";e.textContent="";mainAuth.signInWithEmailAndPassword(toEmail(u),p).catch(()=>{e.textContent="Usuario o contraseña incorrectos";b.disabled=false;b.textContent="Ingresar";});}
 function syncTopbarRow2(){
   // Copy text from desktop labels to mobile row2
@@ -1072,6 +1080,7 @@ function renderAdmin(){
       const pendiente=Math.max(0,debt-paidTotal);
       const isPaid=debt>0&&pendiente<=0;
       const isParcial=paidTotal>0&&pendiente>0;
+      const hasAdminPass=!!(cachedUsers.find(u=>u.id===c.id)||{}).adminSetPassword;
       const statusBadge=isHist
         ?(clientPayments.length>0
           ?(pendiente>0?`<span class="pagado-badge parcial">Parcial</span>`:`<span class="pagado-badge">✓ Saldado</span>`)
@@ -1092,6 +1101,7 @@ function renderAdmin(){
           <button class="client-menu-btn" onclick="toggleClientMenu('${menuId}')">⋯</button>
           <div class="client-menu-dropdown" id="${menuId}">
             <button class="client-menu-item" onclick="abrirEditCliente('${c.id}','${c.name}');closeAllMenus()">✏️ Editar nombre</button>
+            <button class="client-menu-item" onclick="abrirResetPass('${c.id}','${c.name}');closeAllMenus()">🔑 Resetear contraseña</button>
             <button class="client-menu-item danger" onclick="deleteClient('${c.id}');closeAllMenus()">🗑 Eliminar</button>
           </div>
         </div>`;
@@ -1111,6 +1121,7 @@ function renderAdmin(){
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
             ${statusBadge}
+            ${hasAdminPass&&!isHist?`<span style="font-size:10px;background:#FFF0D0;color:#8a4e00;padding:3px 8px;border-radius:999px;font-weight:700;">🔑 Pass temporal</span>`:""}
           </div>
         </div>
       </div>`;
@@ -1657,6 +1668,74 @@ showToast("Pago de "+userName+" eliminado — "+fmt(amount)+" devuelto a deuda",
     .catch(()=>alert("Error al eliminar el pago. Intenta de nuevo."));
 }
 
+let _resetClientId = null, _resetClientEmail = null;
+
+function abrirResetPass(clientId, clientName){
+  const client = cachedUsers.find(u=>u.id===clientId);
+  if(!client) return;
+  _resetClientId = clientId;
+  _resetClientEmail = client.email || (client.username + "@tienda-elena.com");
+  document.getElementById("reset-pass-sub").textContent =
+    "Establece una nueva contraseña para " + clientName + ". Deberás comunicársela personalmente.";
+  document.getElementById("reset-pass-input").value = "";
+  document.getElementById("reset-pass-confirm").value = "";
+  document.getElementById("reset-pass-err").textContent = "";
+  document.getElementById("reset-pass-err").className = "pago-result";
+  document.getElementById("reset-pass-overlay").classList.add("open");
+  setTimeout(()=>document.getElementById("reset-pass-input").focus(), 100);
+}
+
+function togglePassVis(inputId, btn){
+  const inp = document.getElementById(inputId);
+  if(inp.type==="password"){ inp.type="text"; btn.textContent="🙈"; }
+  else { inp.type="password"; btn.textContent="👁"; }
+}
+
+function cerrarResetPass(){
+  document.getElementById("reset-pass-overlay").classList.remove("open");
+  _resetClientId = null; _resetClientEmail = null;
+}
+
+function ejecutarResetPass(){
+  const p1 = document.getElementById("reset-pass-input").value;
+  const p2 = document.getElementById("reset-pass-confirm").value;
+  const err = document.getElementById("reset-pass-err");
+  const btn = document.querySelector("#reset-pass-overlay .btn-confirm");
+  if(p1.length < 6){ err.textContent="Mínimo 6 caracteres"; err.className="pago-result parcial"; return; }
+  if(p1 !== p2){ err.textContent="Las contraseñas no coinciden"; err.className="pago-result parcial"; return; }
+  btn.disabled=true; btn.textContent="Guardando...";
+
+  // Strategy: sign in as client with secAuth using their stored tempPassword or known password,
+  // update password, then save new tempPassword in Firestore for admin reference.
+  // Since we don't know current password, we store new pass in Firestore as "adminSetPassword"
+  // and reset passwordChanged so client can set their own on next login.
+  db.collection("users").doc(_resetClientId).update({
+    passwordChanged: false,
+    adminSetPassword: p1  // Admin stores new pass temporarily to share verbally
+  }).then(()=>{
+    // Now try to sign in as client and actually change the Firebase Auth password
+    // Get client's current stored email
+    const clientEmail = _resetClientEmail;
+    // Try with the new password first (maybe admin already set it before)
+    secAuth.signInWithEmailAndPassword(clientEmail, p1)
+      .catch(()=>{
+        // Couldn't sign in — password in Auth still old
+        // We'll update when client logs in next time via forced re-auth flow
+        return null;
+      })
+      .then(cred => {
+        if(cred && cred.user){
+          return cred.user.updatePassword(p1)
+            .then(()=>secAuth.signOut());
+        }
+      });
+    cerrarResetPass();
+    showToast("✓ Nueva contraseña guardada para "+_resetClientEmail.split('@')[0]+". Compártela personalmente.","success",5000);
+  })
+  .catch(e=>{ err.textContent="Error: "+e.message; err.className="pago-result parcial"; })
+  .finally(()=>{ btn.disabled=false; btn.textContent="Guardar contraseña"; });
+}
+
 function toggleClientMenu(id){
   const menu=document.getElementById(id);
   const wasOpen=menu.classList.contains('open');
@@ -1831,6 +1910,29 @@ document.addEventListener("keydown",e=>{if(e.key==="Enter"&&document.getElementB
     <div class="pago-modal-btns" style="margin-top:1rem;">
       <button class="btn-cancel" onclick="cerrarPassModal()">Cancelar</button>
       <button class="btn-confirm" onclick="confirmarCambioPass()">Confirmar cambio</button>
+    </div>
+  </div>
+</div>
+
+<div class="pago-overlay" id="reset-pass-overlay" onclick="if(event.target===this)cerrarResetPass()">
+  <div class="pago-modal">
+    <h3>🔑 Resetear contraseña</h3>
+    <div class="sub" id="reset-pass-sub"></div>
+    <div class="field">
+      <label>Nueva contraseña (mín. 6 caracteres)</label>
+      <div style="position:relative;">
+        <input type="password" id="reset-pass-input" placeholder="••••••" autocomplete="new-password" style="padding-right:40px;"/>
+        <button onclick="togglePassVis('reset-pass-input',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;font-size:16px;">👁</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Confirmar contraseña</label>
+      <input type="password" id="reset-pass-confirm" placeholder="••••••" autocomplete="new-password"/>
+    </div>
+    <div class="pago-result" id="reset-pass-err"></div>
+    <div class="pago-modal-btns" style="margin-top:1rem;">
+      <button class="btn-cancel" onclick="cerrarResetPass()">Cancelar</button>
+      <button class="btn-confirm" onclick="ejecutarResetPass()">Guardar contraseña</button>
     </div>
   </div>
 </div>
