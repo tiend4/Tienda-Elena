@@ -348,8 +348,9 @@
   .client-menu-wrap{position:relative;}
   .client-menu-btn{width:30px;height:30px;border:none;background:var(--gray-bg);border-radius:8px;cursor:pointer;font-size:16px;color:var(--gray-muted);display:flex;align-items:center;justify-content:center;transition:background .2s;}
   .client-menu-btn:hover{background:var(--gray-border);}
-  .client-menu-dropdown{display:none;position:absolute;top:34px;right:0;background:#fff;border:1px solid var(--gray-border);border-radius:12px;box-shadow:var(--shadow-lg);z-index:50;min-width:140px;overflow:hidden;animation:scaleIn .15s ease;}
-  .client-menu-dropdown.open{display:block;}
+  /* Fixed position context menu — not clipped by card overflow */
+  .client-ctx-menu{display:none;position:fixed;background:#fff;border:1px solid var(--gray-border);border-radius:14px;box-shadow:0 8px 40px rgba(10,22,40,.18);z-index:500;min-width:175px;overflow:hidden;animation:scaleIn .15s ease;}
+  .client-ctx-menu.open{display:block;}
   .client-menu-item{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;border:none;background:none;width:100%;font-family:'Nunito',sans-serif;color:var(--dark);}
   .client-menu-item:hover{background:var(--gray-bg);}
   .client-menu-item.danger{color:var(--danger);}
@@ -1098,12 +1099,7 @@ function renderAdmin(){
       const menuId='menu-'+c.id;
       const menu=isHist?"":`
         <div class="client-menu-wrap">
-          <button class="client-menu-btn" onclick="event.stopPropagation();toggleClientMenu('${menuId}')">⋯</button>
-          <div class="client-menu-dropdown" id="${menuId}">
-            <button class="client-menu-item" onclick="event.stopPropagation();abrirEditCliente('${c.id}','${c.name}');closeAllMenus()">✏️ Editar nombre</button>
-            <button class="client-menu-item" onclick="event.stopPropagation();abrirResetPass('${c.id}','${c.name}');closeAllMenus()">🔑 Resetear contraseña</button>
-            <button class="client-menu-item danger" onclick="event.stopPropagation();deleteClient('${c.id}');closeAllMenus()">🗑 Eliminar</button>
-          </div>
+          <button class="client-menu-btn" onclick="event.stopPropagation();openCtxMenu(event,'${c.id}','${c.name}')">⋯</button>
         </div>`;
       return `<div class="client-card">
         <div class="client-card-top">
@@ -1736,20 +1732,43 @@ function ejecutarResetPass(){
   .finally(()=>{ btn.disabled=false; btn.textContent="Guardar contraseña"; });
 }
 
-function toggleClientMenu(id){
-  const menu=document.getElementById(id);
-  const wasOpen=menu.classList.contains('open');
-  closeAllMenus();
-  if(!wasOpen) menu.classList.add('open');
+let _ctxClientId=null,_ctxClientName=null;
+
+function openCtxMenu(e, clientId, clientName){
+  _ctxClientId=clientId; _ctxClientName=clientName;
+  const menu=document.getElementById('client-ctx-menu');
+  menu.classList.add('open');
+  // Position near the button
+  const rect=e.currentTarget.getBoundingClientRect();
+  let top=rect.bottom+6;
+  let left=rect.right-175;
+  // Keep within viewport
+  if(left<8) left=8;
+  if(top+140>window.innerHeight) top=rect.top-145;
+  menu.style.top=top+'px';
+  menu.style.left=left+'px';
+  // Wire up buttons
+  document.getElementById('ctx-edit').onclick=function(){
+    closeAllMenus();abrirEditCliente(_ctxClientId,_ctxClientName);
+  };
+  document.getElementById('ctx-reset').onclick=function(){
+    closeAllMenus();abrirResetPass(_ctxClientId,_ctxClientName);
+  };
+  document.getElementById('ctx-delete').onclick=function(){
+    closeAllMenus();deleteClient(_ctxClientId);
+  };
 }
+
+function toggleClientMenu(id){ openCtxMenu({currentTarget:document.getElementById(id)},null,null); }
 
 function closeAllMenus(){
-  document.querySelectorAll('.client-menu-dropdown.open').forEach(m=>m.classList.remove('open'));
+  const menu=document.getElementById('client-ctx-menu');
+  if(menu) menu.classList.remove('open');
 }
 
-// Close menus when clicking outside
+// Close on outside click
 document.addEventListener('click',function(e){
-  if(!e.target.closest('.client-menu-wrap')) closeAllMenus();
+  if(!e.target.closest('.client-menu-wrap')&&!e.target.closest('.client-ctx-menu')) closeAllMenus();
 });
 
 let _editClientId=null;
@@ -1935,6 +1954,12 @@ document.addEventListener("keydown",e=>{if(e.key==="Enter"&&document.getElementB
       <button class="btn-confirm" onclick="ejecutarResetPass()">Guardar contraseña</button>
     </div>
   </div>
+</div>
+
+<div class="client-ctx-menu" id="client-ctx-menu">
+  <button class="client-menu-item" id="ctx-edit">✏️ Editar nombre</button>
+  <button class="client-menu-item" id="ctx-reset">🔑 Resetear contraseña</button>
+  <button class="client-menu-item danger" id="ctx-delete">🗑 Eliminar</button>
 </div>
 </body>
 </html>
