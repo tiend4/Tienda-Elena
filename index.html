@@ -390,6 +390,10 @@
   .del-modal-btns .btn-del-all{flex:1;padding:10px;border:none;border-radius:10px;background:var(--danger);color:#fff;cursor:pointer;font-weight:800;font-family:'Nunito',sans-serif;}
   .del-modal-btns .btn-del-qty{flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#F5A623,#f7c464);color:var(--dark);cursor:pointer;font-weight:800;font-family:'Nunito',sans-serif;}
   .del-err{font-size:12px;color:var(--danger);margin-top:6px;min-height:14px;}
+  .cambiar-pass-btn{display:flex;align-items:center;gap:8px;padding:10px 16px;border:1.5px solid var(--gold);border-radius:12px;background:rgba(245,166,35,.07);color:var(--dark);cursor:pointer;font-weight:700;font-size:13px;font-family:'Nunito',sans-serif;transition:all .2s;width:100%;margin-top:10px;}
+  .cambiar-pass-btn:hover{background:rgba(245,166,35,.15);}
+  .cambiar-pass-btn:disabled{opacity:.4;cursor:not-allowed;border-color:var(--gray-border);background:transparent;}
+  .cambiar-pass-used{display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:12px;background:var(--success-bg);color:var(--success);font-weight:700;font-size:12px;margin-top:10px;}
   .pago-bank-overlay{display:none;position:fixed;inset:0;background:rgba(13,31,60,.6);z-index:200;align-items:center;justify-content:center;padding:12px;}
   .pago-bank-overlay.open{display:flex;}
   .pago-bank-modal{background:#fff;border-radius:20px;width:100%;max-width:400px;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(13,31,60,.35);display:flex;flex-direction:column;animation:scaleIn .22s ease;}
@@ -781,6 +785,11 @@
         <div id="client-purchases-list"></div>
         <div class="total-bar" id="client-total-bar"></div>
       </div>
+      <div class="card" id="card-cambiar-pass">
+        <div class="section-title">Mi cuenta</div>
+        <div style="font-size:13px;color:var(--gray-muted);margin-bottom:4px;">Puedes cambiar tu contraseña <strong>una sola vez</strong>.</div>
+        <div id="cambiar-pass-area"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -923,6 +932,57 @@ function syncTopbarRow2(){
   if(src2 && dst2) dst2.textContent = src2.textContent;
 }
 
+function renderCambiarPass(){
+  const area = document.getElementById("cambiar-pass-area");
+  if(!area || !currentUser) return;
+  if(currentUser.passwordChanged){
+    area.innerHTML = `<div class="cambiar-pass-used">✓ Contraseña ya fue cambiada — no es posible cambiarla de nuevo</div>`;
+  } else {
+    area.innerHTML = `<button class="cambiar-pass-btn ripple-host" onclick="abrirPassModal()">🔒 Cambiar mi contraseña</button>`;
+    setTimeout(initRipples, 50);
+  }
+}
+
+function abrirPassModal(){
+  document.getElementById("new-pass-1").value = "";
+  document.getElementById("new-pass-2").value = "";
+  document.getElementById("pass-err").textContent = "";
+  document.getElementById("pass-err").className = "pago-result";
+  document.getElementById("pass-overlay").classList.add("open");
+  setTimeout(()=>document.getElementById("new-pass-1").focus(), 100);
+}
+
+function cerrarPassModal(){
+  document.getElementById("pass-overlay").classList.remove("open");
+}
+
+function confirmarCambioPass(){
+  const p1 = document.getElementById("new-pass-1").value;
+  const p2 = document.getElementById("new-pass-2").value;
+  const err = document.getElementById("pass-err");
+  const btn = document.querySelector("#pass-overlay .btn-confirm");
+  if(p1.length < 6){ err.textContent = "Mínimo 6 caracteres"; err.className="pago-result parcial"; return; }
+  if(p1 !== p2){ err.textContent = "Las contraseñas no coinciden"; err.className="pago-result parcial"; return; }
+  btn.disabled = true; btn.textContent = "Guardando...";
+  mainAuth.currentUser.updatePassword(p1)
+    .then(()=> db.collection("users").doc(currentUser.id).update({passwordChanged: true}))
+    .then(()=>{
+      currentUser.passwordChanged = true;
+      cerrarPassModal();
+      renderCambiarPass();
+      showToast("✓ Contraseña cambiada exitosamente","success");
+    })
+    .catch(e=>{
+      err.className="pago-result parcial";
+      if(e.code==="auth/requires-recent-login"){
+        err.textContent="Por seguridad cierra sesión, vuelve a entrar y luego cambia la contraseña.";
+      } else {
+        err.textContent="Error: "+e.message;
+      }
+    })
+    .finally(()=>{ btn.disabled=false; btn.textContent="Confirmar cambio"; });
+}
+
 function doLogout(){if(unsubPurchases){unsubPurchases();unsubPurchases=null;}if(unsubView){unsubView();unsubView=null;}currentUser=null;mainAuth.signOut();}
 function moveSlider(sliderId, btnId){
   const slider=document.getElementById(sliderId);
@@ -952,7 +1012,7 @@ function showClientTab(t){
     const s=document.getElementById("client-prod-search");
     if(s){s.value="";filterClientProducts();}
   }
-  if(t==="miscuentas") renderClientPurchases();
+  if(t==="miscuentas"){renderClientPurchases();renderCambiarPass();}
 }
 const getProduct=id=>cachedProducts.find(p=>p.id===id);
 const clientDebtOf=(uid,purchases)=>purchases.filter(p=>p.userId===uid).reduce((s,p)=>{const pr=getProduct(p.productId);return s+(pr?pr.price*p.qty:0);},0);
@@ -1154,6 +1214,7 @@ function renderAdmin(){
     }).join("")+"</table></div>";
 }
 function renderCliente(){
+  renderCambiarPass();
   document.getElementById("client-welcome").textContent="Hola, "+currentUser.name+" · "+MONTHS[currentMonth]+" "+currentYear;
   const cw2=document.getElementById("client-welcome-2");if(cw2)cw2.textContent="Hola, "+currentUser.name+" · "+MONTHS[currentMonth]+" "+currentYear;
   syncTopbarRow2();
@@ -1752,6 +1813,24 @@ document.addEventListener("keydown",e=>{if(e.key==="Enter"&&document.getElementB
       <button class="btn-cancel" onclick="cerrarDelModal()">Cancelar</button>
       <button class="btn-del-all" id="del-all-btn" onclick="ejecutarDeleteAll()">Eliminar todo</button>
       <button class="btn-del-qty" id="del-qty-btn" onclick="ejecutarDeleteQty()" style="display:none;">Ajustar cantidad</button>
+    </div>
+  </div>
+</div>
+
+<div class="pago-overlay" id="pass-overlay" onclick="if(event.target===this)cerrarPassModal()">
+  <div class="pago-modal">
+    <h3>🔑 Cambiar contraseña</h3>
+    <div class="sub">Esta es tu única oportunidad para cambiar tu contraseña. Elige una que recuerdes bien.</div>
+    <div class="field"><label>Nueva contraseña (mín. 6 caracteres)</label>
+      <input type="password" id="new-pass-1" placeholder="••••••" autocomplete="new-password"/>
+    </div>
+    <div class="field"><label>Confirmar contraseña</label>
+      <input type="password" id="new-pass-2" placeholder="••••••" autocomplete="new-password"/>
+    </div>
+    <div class="pago-result" id="pass-err"></div>
+    <div class="pago-modal-btns" style="margin-top:1rem;">
+      <button class="btn-cancel" onclick="cerrarPassModal()">Cancelar</button>
+      <button class="btn-confirm" onclick="confirmarCambioPass()">Confirmar cambio</button>
     </div>
   </div>
 </div>
